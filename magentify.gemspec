@@ -17,5 +17,7 @@ Gem::Specification.new do |gem|
   gem.version       = Magentify::VERSION
 
   gem.add_dependency 'capistrano', ">= 2.5.10"
+  gem.add_dependency 'magnetize'
+  gem.add_dependency 'dotenv'
 
 end

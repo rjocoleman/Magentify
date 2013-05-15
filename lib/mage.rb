@@ -1,35 +1,49 @@
 load Gem.find_files('nonrails.rb').last.to_s
 
+
+require 'magnetize'
+require 'dotenv'
+
 # =========================================================================
 # These variables MUST be set in the client capfiles. If they are not set,
 # the deploy will fail with an error.
 # =========================================================================
-_cset(:app_symlinks) {
-  abort "Please specify an array of symlinks to shared resources, set :app_symlinks, ['/media', ./. '/staging']"
+_cset(:admin_symlinks) {
+  abort "Please specify an array of symlinks to shared resources, set :admin_symlinks, ['/media', ./. '/staging']"
 }
-_cset(:app_shared_dirs)  {
-  abort "Please specify an array of shared directories to be created, set :app_shared_dirs"
+_cset(:admin_shared_dirs)  {
+  abort "Please specify an array of shared directories to be created, set :admin_shared_dirs"
 }
-_cset(:app_shared_files)  {
-  abort "Please specify an array of shared files to be symlinked, set :app_shared_files"
+_cset(:admin_shared_files)  {
+  abort "Please specify an array of shared files to be symlinked, set :admin_shared_files"
 }
 
-_cset :compile, false
+_cset(:deploy_config) {
+  abort "Please specify the .env config to be deployed, set :deploy_config"
+}
+
+def magerun_defaults
+  "--no-ansi --no-interaction --root-dir=#{current_path}"
+end
+
+def magerun
+  "$HOME/bin/n98-magerun.phar #{magerun_defaults}"
+end
 
 namespace :mage do
-  desc <<-DESC
+ desc <<-DESC
     Prepares one or more servers for deployment of Magento. Before you can use any \
     of the Capistrano deployment tasks with your project, you will need to \
     make sure all of your servers have been prepared with `cap deploy:setup'. When \
     you add a new server to your cluster, you can easily run the setup task \
     on just that server by specifying the HOSTS environment variable:
 
-      $ cap HOSTS=new.server.com mage:setup
+      $ cap HOSTS=new.server.com mage:deploy_setup
 
     It is safe to run this task on servers that have already been set up; it \
     will not destroy any deployed revisions or data.
   DESC
-  task :setup, :roles => [:web, :app], :except => { :no_release => true } do
+  task :deploy_setup, :roles => [:web, :admin], :except => { :no_release => true } do
     if app_shared_dirs
       app_shared_dirs.each { |link| run "#{try_sudo} mkdir -p #{shared_path}#{link} && #{try_sudo} chmod g+w #{shared_path}#{link}"}
     end
@@ -38,14 +52,35 @@ namespace :mage do
     end
   end
 
-  desc <<-DESC
-    Touches up the released code. This is called by update_code \
-    after the basic deploy finishes.
+  task :auto_configure do
+    Dotenv.load ".env.#{deploy_config}"
+    magento = Magnetize::Magento.new
+    put magento.to_xml("app/etc/local.xml"), '/var/www/magento/current/app/etc/local.xml'
+    put magento.to_xml("errors/local.xml"), '/var/www/magento/current/errors/local.xml'
+  end
 
-    Any directories deployed from the SCM are first removed and then replaced with \
-    symlinks to the same directories within the shared location.
-  DESC
-  task :finalize_update, :roles => [:web, :app], :except => { :no_release => true } do    
+  desc "Magento: Deploy app/etc/local.xml and errors/local.xml"
+  task :configure do
+    Capistrano::CLI.ui.say "<%= color '*'*70, :red %>"
+    if Capistrano::CLI.ui.agree "<%= color 'You are about to push your .env.#{deploy_config}. Continue? (y/N)', :yellow %>"
+      Capistrano::CLI.ui.say "<%= color '*** Deploying config', :green %>"
+      auto_configure
+    else
+      Capistrano::CLI.ui.say "<%= color '*** Config deploy ABORTED.', :red %>"
+    end
+  end
+  
+  desc "Magento: Install n98-magerun.phar"
+  task :install_magerun, :roles => [:admin, :web], :except => { :no_release => true } do
+    # this is noisy, it's just cosmetic though.
+    run "mkdir -p $HOME/bin"
+    run "curl -o $HOME/bin/n98-magerun.phar https://raw.github.com/netz98/n98-magerun/master/n98-magerun.phar"
+    run "chmod +x $HOME/bin/n98-magerun.phar"
+  end
+
+  # Touches up the released code. This is called by update_code after the basic deploy finishes.
+  # Any directories deployed from the SCM are first removed and then replaced with symlinks to the same directories within the shared location.
+  task :finalize_update, :roles => [:web, :admin], :except => { :no_release => true } do    
     run "chmod -R g+w #{latest_release}" if fetch(:group_writable, true)
 
     if app_symlinks
@@ -58,70 +93,45 @@ namespace :mage do
     if app_shared_files
       # Remove the contents of the shared directories if they were deployed from SCM
       app_shared_files.each { |link| run "#{try_sudo} rm -rf #{latest_release}/#{link}" }
-      # Add symlinks the directoris in the shared location
+      # Add symlinks the directories in the shared location
       app_shared_files.each { |link| run "ln -s #{shared_path}#{link} #{latest_release}#{link}" }
     end
   end
-
-  desc <<-DESC
-    Clear the Magento Cache
-  DESC
-  task :cc, :roles => [:web, :app] do
-    run "cd #{current_path} && rm -rf var/cache/*"
+  
+  desc "Magento: Run module setup scripts"
+  task :setup_scripts, :roles => :admin do
+    run "#{magerun} sys:setup:run"
   end
 
-  desc <<-DESC
-    Disable the Magento install by creating the maintenance.flag in the web root.
-  DESC
-  task :disable, :roles => :web do
-    run "cd #{current_path} && touch maintenance.flag"
+  desc "Magento: Clean cache"
+  task :cacheclean, :roles => [:web, :admin] do
+    run "#{magerun} cache:clean"
   end
 
-  desc <<-DESC
-    Enable the Magento stores by removing the maintenance.flag in the web root.
-  DESC
-  task :enable, :roles => :web do
-    run "cd #{current_path} && rm -f maintenance.flag"
+  desc "Magento: Enable Maintenance mode (default: web nodes)"
+  task :maintenance_on, :roles => :web do
+    run "#{magerun} sys:maintenance --on"
   end
 
-  desc <<-DESC
-    Run the Magento compiler
-  DESC
-  task :compiler, :roles => [:web, :app] do
-    if fetch(:compile, true)
-      run "cd #{current_path}/shell && php -f compiler.php -- compile"
-    end
+  desc "Magento: Disable Maintenance mode (default: web nodes)"
+  task :maintenance_off, :roles => :web do
+    run "#{magerun} sys:maintenance --off"
   end
 
-  desc <<-DESC
-    Enable the Magento compiler
-  DESC
-  task :enable_compiler, :roles => [:web, :app] do
-    run "cd #{current_path}/shell && php -f compiler.php -- enable"
+  desc "Magento: Indexer reindex all"
+  task :reindexall, :roles => :admin do
+    run "#{magerun} index:reindex:all"
   end
 
-  desc <<-DESC
-    Disable the Magento compiler
-  DESC
-  task :disable_compiler, :roles => [:web, :app] do
-    run "cd #{current_path}/shell && php -f compiler.php -- disable"
-  end
-
-  desc <<-DESC
-    Run the Magento indexer
-  DESC
-  task :indexer, :roles => [:web, :app] do
-    run "cd #{current_path}/shell && php -f indexer.php -- reindexall"
-  end
-
-  desc <<-DESC
-    Clean the Magento logs
-  DESC
-  task :clean_log, :roles => [:web, :app] do
-    run "cd #{current_path}/shell && php -f log.php -- clean"
+  desc "Magento: n98-magerun interactive shell"
+  task :shell, :roles => :admin do
+    hostname = find_servers_for_task(current_task).first
+    exec "ssh -l #{user} #{hostname} -t 'source ~/.profile && #{magerun} shell'"
   end
 end
 
-after   'deploy:setup', 'mage:setup'
-after   'deploy:finalize_update', 'mage:finalize_update'
-after   'deploy:create_symlink', 'mage:compiler'
+after 'deploy:setup', 'mage:deploy_setup'
+
+before 'deploy', 'mage:maintenance_on'
+after 'deploy:finalize_update', 'mage:finalize_update', 'mage:auto_configure'
+after 'deploy:create_symlink', 'mage:cacheclean', 'mage:setup_scripts', 'mage:maintenance_off'
