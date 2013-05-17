@@ -134,4 +134,4 @@ after 'deploy:setup', 'mage:deploy_setup', 'mage:install_magerun'
 
 before 'deploy', 'mage:maintenance_on'
 after 'deploy:finalize_update', 'mage:finalize_update', 'mage:auto_configure'
-after 'deploy:create_symlink', 'mage:cacheclean', 'mage:setup_scripts', 'mage:maintenance_off'
+after 'deploy:create_symlink', 'mage:cacheflush', 'mage:setup_scripts', 'mage:maintenance_off'
