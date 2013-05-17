@@ -55,8 +55,8 @@ namespace :mage do
   task :auto_configure do
     Dotenv.load ".env.#{deploy_config}"
     magento = Magnetize::Magento.new
-    put magento.to_xml("app/etc/local.xml"), '/var/www/magento/current/app/etc/local.xml'
-    put magento.to_xml("errors/local.xml"), '/var/www/magento/current/errors/local.xml'
+    put magento.to_xml("app/etc/local.xml"), "#{latest_release}/app/etc/local.xml"
+    put magento.to_xml("errors/local.xml"), "#{latest_release}/errors/local.xml"
   end
 
   desc "Magento: Deploy app/etc/local.xml and errors/local.xml"
@@ -103,9 +103,9 @@ namespace :mage do
     run "#{magerun} sys:setup:run"
   end
 
-  desc "Magento: Clean cache"
-  task :cacheclean, :roles => [:web, :admin] do
-    run "#{magerun} cache:clean"
+  desc "Magento: Cache Flush"
+  task :cacheflush, :roles => [:web, :admin] do
+    run "#{magerun} cache:flush"
   end
 
   desc "Magento: Enable Maintenance mode (default: web nodes)"
@@ -130,7 +130,7 @@ namespace :mage do
   end
 end
 
-after 'deploy:setup', 'mage:deploy_setup'
+after 'deploy:setup', 'mage:deploy_setup', 'mage:install_magerun'
 
 before 'deploy', 'mage:maintenance_on'
 after 'deploy:finalize_update', 'mage:finalize_update', 'mage:auto_configure'
