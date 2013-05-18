@@ -109,12 +109,12 @@ namespace :mage do
   end
 
   desc "Magento: Enable Maintenance mode (default: web nodes)"
-  task :maintenance_on, :roles => :web do
+  task :maintain, :roles => :web do
     run "#{magerun} sys:maintenance --on"
   end
 
   desc "Magento: Disable Maintenance mode (default: web nodes)"
-  task :maintenance_off, :roles => :web do
+  task :maintainoff, :roles => :web do
     run "#{magerun} sys:maintenance --off"
   end
 
@@ -128,10 +128,22 @@ namespace :mage do
     hostname = find_servers_for_task(current_task).first
     exec "ssh -l #{user} #{hostname} -t 'source ~/.profile && #{magerun} shell'"
   end
+  
+  desc "Magento: Disable Cron (flag)"
+  task :cronoff, :roles => :admin do
+    run "touch #{current_path}/disablecron.flag"
+  end
+  
+  desc "Magento: Enable cron (flag)"
+  task :cronon, :roles => :admin do
+    run "rm #{current_path}/disablecron.flag"
+  end
 end
 
+# setup run only
 after 'deploy:setup', 'mage:deploy_setup', 'mage:install_magerun'
 
-before 'deploy', 'mage:maintenance_on'
+#every deploy
+before 'deploy', 'mage:maintain'
 after 'deploy:finalize_update', 'mage:finalize_update', 'mage:auto_configure'
-after 'deploy:create_symlink', 'mage:cacheflush', 'mage:setup_scripts', 'mage:maintenance_off'
+after 'deploy:create_symlink', 'mage:cacheflush', 'mage:setup_scripts', 'mage:maintainoff'
