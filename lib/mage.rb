@@ -8,7 +8,7 @@ require 'dotenv'
 # the deploy will fail with an error.
 # =========================================================================
 _cset(:admin_symlinks) {
-  abort 'Please specify an array of symlinks to shared resources, set :admin_symlinks, ['/media', ./. '/staging']'
+  abort 'Please specify an array of symlinks to shared resources, set :admin_symlinks, ["/media", ./. "/staging"]'
 }
 _cset(:admin_shared_dirs)  {
   abort 'Please specify an array of shared directories to be created, set :admin_shared_dirs'
@@ -52,12 +52,12 @@ namespace :mage do
 
   desc 'Magento: Deploy app/etc/local.xml and errors/local.xml'
   task :configure do
-    Capistrano::CLI.ui.say '<%= color '*'*70, :red %>'
+    Capistrano::CLI.ui.say '<%= color "*"*70, :red %>'
     if Capistrano::CLI.ui.agree "<%= color 'You are about to push your .env.#{deploy_config}. Continue? (y/N)', :yellow %>"
-      Capistrano::CLI.ui.say '<%= color '*** Deploying config', :green %>'
+      Capistrano::CLI.ui.say '<%= color "*** Deploying config", :green %>'
       auto_configure
     else
-      Capistrano::CLI.ui.say '<%= color '*** Config deploy ABORTED.', :red %>'
+      Capistrano::CLI.ui.say '<%= color "*** Config deploy ABORTED.", :red %>'
     end
   end
 
@@ -80,7 +80,7 @@ namespace :mage do
       app_shared_files.each { |link| run "ln -s #{shared_path}#{link} #{latest_release}#{link}" }
     end
   end
-  
+
   desc 'Magento: Run module setup scripts'
   task :setup_scripts, :roles => :admin do
     run "n98-magerun.phar #{magerun_options} sys:setup:run"
@@ -114,10 +114,22 @@ namespace :mage do
 end
 
 # setup run only
-before 'deploy:setup', 'mage:deploy_setup'
+before 'deploy:setup' do
+  set :is_setup, true
+  mage.deploy_setup
+end
 after 'deploy:setup', 'deploy:cold'
 
 #every deploy
 before 'deploy', 'mage:maintainon'
 after 'deploy:finalize_update', 'mage:finalize_update', 'mage:auto_configure'
-after 'deploy:create_symlink', 'mage:cacheflush', 'mage:setup_scripts', 'mage:maintainoff', 'deploy:cleanup'
+after 'deploy:create_symlink' do
+  mage.cacheflush
+  mage.setup_scripts
+  if !fetch(:is_setup, false)
+    mage.maintainoff
+  end
+  deploy.cleanup
+
+  unset :is_setup
+end
