@@ -8,16 +8,16 @@ require 'dotenv'
 # the deploy will fail with an error.
 # =========================================================================
 _cset(:admin_symlinks) {
-  abort "Please specify an array of symlinks to shared resources, set :admin_symlinks, ['/media', ./. '/staging']"
+  abort 'Please specify an array of symlinks to shared resources, set :admin_symlinks, ['/media', ./. '/staging']'
 }
 _cset(:admin_shared_dirs)  {
-  abort "Please specify an array of shared directories to be created, set :admin_shared_dirs"
+  abort 'Please specify an array of shared directories to be created, set :admin_shared_dirs'
 }
 _cset(:admin_shared_files)  {
-  abort "Please specify an array of shared files to be symlinked, set :admin_shared_files"
+  abort 'Please specify an array of shared files to be symlinked, set :admin_shared_files'
 }
 _cset(:deploy_config) {
-  abort "Please specify the .env config to be deployed, set :deploy_config"
+  abort 'Please specify the .env config to be deployed, set :deploy_config'
 }
 _cset(:magerun_options) { "--root-dir=#{current_path} --no-ansi --no-interaction" }
 
@@ -46,18 +46,18 @@ namespace :mage do
   task :auto_configure do
     Dotenv.load ".env.#{deploy_config}" unless deploy_config.nil? || deploy_config.empty?
     magento = Magnetize::Magento.new
-    put magento.to_xml("app/etc/local.xml"), "#{latest_release}/app/etc/local.xml"
-    put magento.to_xml("errors/local.xml"), "#{latest_release}/errors/local.xml"
+    put magento.to_xml('app/etc/local.xml'), "#{latest_release}/app/etc/local.xml"
+    put magento.to_xml('errors/local.xml'), "#{latest_release}/errors/local.xml"
   end
 
-  desc "Magento: Deploy app/etc/local.xml and errors/local.xml"
+  desc 'Magento: Deploy app/etc/local.xml and errors/local.xml'
   task :configure do
-    Capistrano::CLI.ui.say "<%= color '*'*70, :red %>"
+    Capistrano::CLI.ui.say '<%= color '*'*70, :red %>'
     if Capistrano::CLI.ui.agree "<%= color 'You are about to push your .env.#{deploy_config}. Continue? (y/N)', :yellow %>"
-      Capistrano::CLI.ui.say "<%= color '*** Deploying config', :green %>"
+      Capistrano::CLI.ui.say '<%= color '*** Deploying config', :green %>'
       auto_configure
     else
-      Capistrano::CLI.ui.say "<%= color '*** Config deploy ABORTED.', :red %>"
+      Capistrano::CLI.ui.say '<%= color '*** Config deploy ABORTED.', :red %>'
     end
   end
 
@@ -81,53 +81,43 @@ namespace :mage do
     end
   end
   
-  desc "Magento: Run module setup scripts"
+  desc 'Magento: Run module setup scripts'
   task :setup_scripts, :roles => :admin do
     run "n98-magerun.phar #{magerun_options} sys:setup:run"
   end
 
-  desc "Magento: Cache Flush"
+  desc 'Magento: Cache Flush'
   task :cacheflush, :roles => [:web, :admin] do
     run "n98-magerun.phar #{magerun_options} cache:flush"
   end
 
-  desc "Magento: Enable Maintenance mode (default: web nodes)"
-  task :maintain, :roles => :web do
+  desc 'Magento: Enable Maintenance mode (default: web nodes)'
+  task :maintainon, :roles => :web do
     run "n98-magerun.phar #{magerun_options} sys:maintenance --on"
   end
 
-  desc "Magento: Disable Maintenance mode (default: web nodes)"
+  desc 'Magento: Disable Maintenance mode (default: web nodes)'
   task :maintainoff, :roles => :web do
     run "n98-magerun.phar #{magerun_options} sys:maintenance --off"
   end
 
-  desc "Magento: Indexer reindex all"
+  desc 'Magento: Indexer reindex all'
   task :reindexall, :roles => :admin do
     run "n98-magerun.phar #{magerun_options} index:reindex:all"
   end
 
-  desc "Magento: n98-magerun interactive shell"
+  desc 'Magento: n98-magerun interactive shell'
   task :shell, :roles => :admin do
     hostname = find_servers_for_task(current_task).first
     exec "ssh -l #{user} #{hostname} -t 'source ~/.profile && n98-magerun.phar #{magerun_options} shell'"
-  end
-  
-  desc "Magento: Disable Cron (flag)"
-  task :cronoff, :roles => :admin do
-    run "touch #{current_path}/disablecron.flag"
-  end
-  
-  desc "Magento: Enable cron (flag)"
-  task :cronon, :roles => :admin do
-    run "rm #{current_path}/disablecron.flag"
   end
 end
 
 # setup run only
 before 'deploy:setup', 'mage:deploy_setup'
-before 'deploy:setup', 'deploy:cold'
+after 'deploy:setup', 'deploy:cold'
 
 #every deploy
-before 'deploy', 'mage:maintain'
+before 'deploy', 'mage:maintainon'
 after 'deploy:finalize_update', 'mage:finalize_update', 'mage:auto_configure'
 after 'deploy:create_symlink', 'mage:cacheflush', 'mage:setup_scripts', 'mage:maintainoff', 'deploy:cleanup'
