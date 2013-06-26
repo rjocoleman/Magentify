@@ -1,6 +1,5 @@
 load Gem.find_files('nonrails.rb').last.to_s
 
-
 require 'magnetize'
 require 'dotenv'
 
@@ -17,18 +16,10 @@ _cset(:admin_shared_dirs)  {
 _cset(:admin_shared_files)  {
   abort "Please specify an array of shared files to be symlinked, set :admin_shared_files"
 }
-
 _cset(:deploy_config) {
   abort "Please specify the .env config to be deployed, set :deploy_config"
 }
-
-def magerun_defaults
-  "--no-ansi --no-interaction --root-dir=#{current_path}"
-end
-
-def magerun
-  "$HOME/bin/n98-magerun.phar #{magerun_defaults}"
-end
+_cset(:magerun_options) { "--root-dir=#{current_path} --no-ansi --no-interaction" }
 
 namespace :mage do
  desc <<-DESC
@@ -53,7 +44,7 @@ namespace :mage do
   end
 
   task :auto_configure do
-    Dotenv.load ".env.#{deploy_config}"
+    Dotenv.load ".env.#{deploy_config}" unless deploy_config.nil? || deploy_config.empty?
     magento = Magnetize::Magento.new
     put magento.to_xml("app/etc/local.xml"), "#{latest_release}/app/etc/local.xml"
     put magento.to_xml("errors/local.xml"), "#{latest_release}/errors/local.xml"
@@ -68,14 +59,6 @@ namespace :mage do
     else
       Capistrano::CLI.ui.say "<%= color '*** Config deploy ABORTED.', :red %>"
     end
-  end
-  
-  desc "Magento: Install n98-magerun.phar"
-  task :install_magerun, :roles => [:admin, :web], :except => { :no_release => true } do
-    # this is noisy, it's just cosmetic though.
-    run "mkdir -p $HOME/bin"
-    run "curl -o $HOME/bin/n98-magerun.phar https://raw.github.com/netz98/n98-magerun/master/n98-magerun.phar"
-    run "chmod +x $HOME/bin/n98-magerun.phar"
   end
 
   # Touches up the released code. This is called by update_code after the basic deploy finishes.
@@ -100,33 +83,33 @@ namespace :mage do
   
   desc "Magento: Run module setup scripts"
   task :setup_scripts, :roles => :admin do
-    run "#{magerun} sys:setup:run"
+    run "n98-magerun.phar #{magerun_options} sys:setup:run"
   end
 
   desc "Magento: Cache Flush"
   task :cacheflush, :roles => [:web, :admin] do
-    run "#{magerun} cache:flush"
+    run "n98-magerun.phar #{magerun_options} cache:flush"
   end
 
   desc "Magento: Enable Maintenance mode (default: web nodes)"
   task :maintain, :roles => :web do
-    run "#{magerun} sys:maintenance --on"
+    run "n98-magerun.phar #{magerun_options} sys:maintenance --on"
   end
 
   desc "Magento: Disable Maintenance mode (default: web nodes)"
   task :maintainoff, :roles => :web do
-    run "#{magerun} sys:maintenance --off"
+    run "n98-magerun.phar #{magerun_options} sys:maintenance --off"
   end
 
   desc "Magento: Indexer reindex all"
   task :reindexall, :roles => :admin do
-    run "#{magerun} index:reindex:all"
+    run "n98-magerun.phar #{magerun_options} index:reindex:all"
   end
 
   desc "Magento: n98-magerun interactive shell"
   task :shell, :roles => :admin do
     hostname = find_servers_for_task(current_task).first
-    exec "ssh -l #{user} #{hostname} -t 'source ~/.profile && #{magerun} shell'"
+    exec "ssh -l #{user} #{hostname} -t 'source ~/.profile && n98-magerun.phar #{magerun_options} shell'"
   end
   
   desc "Magento: Disable Cron (flag)"
@@ -141,7 +124,8 @@ namespace :mage do
 end
 
 # setup run only
-after 'deploy:setup', 'mage:deploy_setup', 'mage:install_magerun'
+before 'deploy:setup', 'mage:deploy_setup'
+before 'deploy:setup', 'deploy:cold'
 
 #every deploy
 before 'deploy', 'mage:maintain'
